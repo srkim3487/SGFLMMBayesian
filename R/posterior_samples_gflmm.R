@@ -1,0 +1,140 @@
+#' @title Bayesian inference for generalized functional linear mixed model (GFLMM)
+#'
+#' @description 
+#' Performs Bayesian inference for a generalized functional linear mixed model (GFLMM), 
+#' using Metropolis-Hastings sampling with a random walk proposal distribution. 
+#' The proposal variance can be fixed or adaptively tuned
+#' during sampling to achieve efficient exploration of the posterior distribution.
+#'
+#' @param M An integer specifying the number of MCMC iterations to perform.
+#'
+#' @param initial A (p+G+2)-dimsional vector giving the initial values for the parameters 
+#' (\eqn{\alpha}, trunctated coefficients \eqn{\beta_j=\int \beta(t) \phi_j(t) dt}, j=1,...,p,
+#' \eqn{u_g}, g= 1,..., G, \eqn{\sigma_u^2}).
+#'
+#' @param proposal_var_fixed A positive numeric value specifying the diagonal proposal 
+#' variance used for the fixed effects (\eqn{\alpha} and \eqn{\beta_j}, j=1,...,p) in the random walk 
+#' Metropolis-Hastings algorithm. 
+#' 
+#' @param proposal_var_sigma2 A positive numeric value specifying the diagonal proposal 
+#' variance used for \eqn{\sigma_u^2} in the random walk Metropolis-Hastings algorithm. 
+#' 
+#' @param proposal_var_rand A positive numeric value specifying the diagonal proposal 
+#' variance used for the random effects (\eqn{u_g}, g=1,...,G) in the random walk 
+#' Metropolis-Hastings algorithm. 
+#'
+#' @param autotune Logical; if \code{TRUE}, the sampler adaptively adjusts 
+#' \code{proposal_var_fixed}, \code{proposal_var_sigma2}, and \code{proposal_var_rand} 
+#' based on the acceptance rate during sampling. The 
+#' variance is increased if the acceptance rate is high (above 35\%) and decreased 
+#' if the rate is too low (below 20\%). If \code{FALSE}, the proposal variance 
+#' remains fixed throughout the sampling process.
+#'
+#' @param prior_a Shape parameter of the inverse-gamma prior for \eqn{\sigma_u^2}.
+#' 
+#' @param prior_b Scale parameter of the inverse-gamma prior for \eqn{\sigma_u^2}.
+#' 
+#' @param M_auxz The number of full Gibbs sampling used to generate the auxiliary variable.
+#' 
+#' @param data_list  A list of length G, where each element contains the binary response variable for a corresponding group.
+#' 
+#' @param X_list A list of length G, where each element is an \eqn{n_g \times T} matrix of functional covariates for group \eqn{g}. 
+#' Each row corresponds to one observed functional covariate.
+#' 
+#' @param t A T-dimensional vector containing densely time grid points on the interval \eqn{[0, 1]}, 
+#' where the functions are evaluated.
+#' This should match the time domain used when creating basis functions via the \code{CreateBasis} function 
+#' from the \pkg{fdapace} package.
+#' 
+#' @param p An natural number indicating the truncation level.
+#' 
+#' @param basis_type A character string specifying the type of orthogonal basis \eqn{\phi_j, j=1,..., p}. 
+#' Must be one of \code{"cos"}, \code{"sin"}, \code{"fourier"}, \code{"legendre01"}, or \code{"poly"}. 
+#' These correspond to basis types supported by the \code{CreateBasis} function in the \pkg{fdapace} package.
+#' The default is \code{"fourier"}.
+#' 
+#' @return A list with the following elements:
+#' \describe{
+#'  \item{samples}{A list containing posterior samples:
+#'    \itemize{
+#'       \item \code{alpha}: An M by 1 matrix of posterior samples for the intercept parameter.
+#'       \item \code{beta}: An M by p matrix of posterior samples for the trunctated coefficients \eqn{\beta_j}, j=1,...,p.
+#'       \item \code{rand}: An M by G matrix of posterior samples for the random effect.
+#'       \item \code{sigma2}: An M by 1 matrix of posterior samples for the variance component of the random effect.
+#'    }
+#'  }
+#'   \item{diagnostics}{A list containing diagnostic information:
+#'     \itemize{
+#'      \item \code{final_proposal_var_fixed}: The final proposal variance used for the fixed effect.
+#'       \item \code{accept_rate_fixed}: The acceptance rate for the fixed effect proposals. 
+#'       \item \code{final_proposal_var_rand}: The final proposal variance used for the random effect.
+#'       \item \code{accept_rate_rand}: The acceptance rate for the random effect proposals. 
+#'       \item \code{final_proposal_var_sigma2}: The final proposal variance used for the variance component of the random effect.
+#'       \item \code{accept_rate_sigma2}: The acceptance rate for the variance component of the random effect.
+#'       \item \code{elapsed_time_sec}: The total elapsed computation time in seconds.
+#'     }
+#'   }
+#' }
+#' @seealso
+#' \code{\link{posterior_samples_gflm}}
+#' \code{\link{posterior_samples_sgflm}}
+#' \code{\link{posterior_samples_sgflmm}}
+#' 
+#' @examples
+#' 
+#' library(SGFLMMBayesian)
+#' 
+#' # Load example data included in the package
+#' data(data_example)
+#' X_list <- data_example$X_list
+#' data_list <- data_example$data_list
+#' 
+#' # simulate time point on [0, 1]
+#' t <- seq(from = 0, to = 1, length.out = ncol(X_list[[1]]))
+#' 
+#' initial_values <- c(-4.6, 1.1, -0.9, 2.2, -1.4, 0.4, 0.0, 0.1, -2.5, 2.0, -0.2, -1.1, -0.3, 1.0, 0.2, 0.4, 1.4)
+#' res <- posterior_samples_gflmm(M=10000, initial=initial_values, 
+#' proposal_var_fixed=0.001, proposal_var_sigma2=1.1, proposal_var_rand=1, autotune=FALSE, 
+#' prior_a=1, prior_b=1, M_auxz = 20, 
+#' data_list=data_list,
+#' X_list = X_list, t=t, p=3, basis_type="fourier") 
+#' 
+#' # Example: compute the posterior mean of sigma2
+#' mean(res$samples$sigma2[-(1:5000)])
+#' 
+#' @export
+posterior_samples_gflmm <- function(M, initial, proposal_var_fixed, proposal_var_sigma2, proposal_var_rand, autotune, 
+                                   prior_a, prior_b, M_auxz,
+                                   data_list,
+                                   X_list, t, p, basis_type="fourier") {
+  
+  basis  <- fdapace::CreateBasis(p, t, type = basis_type)
+  
+  res <- rw_di(M, initial, 
+               tune_fixed = proposal_var_fixed, 
+               tune_sigmau2 = proposal_var_sigma2, 
+               tune_u = proposal_var_rand, 
+               autotune,
+               X_list, data_list, p, basis, M_auxz, length(data_list), prior_a, prior_b)
+  
+  
+  
+  list(
+    samples = list(
+      alpha = res$alpha_samples,
+      beta = res$betaj_samples,
+      rand = res$u_g_samples,
+      sigma2 = res$sigmau2_samples
+    ),
+    diagnostics = list(
+      final_proposal_var_fixed = res$tune_fixed,
+      accept_rate_fixed = res$rate_fixed,
+      final_proposal_var_rand = res$tune_u,
+      accept_rate_rand = res$rate_u,
+      final_proposal_var_sigma2 = res$tune_sigmau2,
+      accept_rate_sigma2 =res$rate_sigmau2,
+      time_sec = res$elapsed_time_sec
+    )
+  )
+}
+

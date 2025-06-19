@@ -1,0 +1,13 @@
+Package: SGFLMMBayesian
+Type: Package
+Title: Bayesian inference for GFLM, SGFLM, GFLMM, and SGFLMM
+Version: 1.0
+Date: 2025-06-17
+Author: Sooran Kim
+Maintainer: Sooran Kim <Sooran.Kim@nyulangone.org>
+Description: The package implements Bayesian inference for four models: (1) generalized functional linear models (GFLM), (2) spatial generalized functional linear models (SGFLM), (3) generalized functional linear mixed models (GFLMM), and (4) spatial generalized functional linear mixed models (SGFLMM).
+License: GPL-3
+Imports: Rcpp (>= 1.0.13-1), fdapace
+LinkingTo: Rcpp, RcppArmadillo, testthat
+Suggests: xml2
+RoxygenNote: 7.3.2
